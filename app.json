@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "efood-mobile",
+    "slug": "efood-mobile",
+    "scheme": "efood-mobile",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/banner.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/banner.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/banner.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}
