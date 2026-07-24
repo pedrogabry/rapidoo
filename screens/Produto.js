@@ -1,5 +1,4 @@
-import React, { useMemo, useState, useEffect, } from "react";
-
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,22 +7,16 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
+  Alert,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useGlobalContext } from "../context/GlobalContext";
 
-export default function Produto({route}) {
-
+export default function Produto({ route }) {
   const navigation = useNavigation();
+  const { addToCart } = useGlobalContext();
 
-  
-
-  console.log("ROUTE:", route);
-  console.log("PARAMS:", route?.params);
-
-  const { nome, descricao, preco, imagem, adicionais } = route?.params || {};
-
-  console.log("valor de redirect: ", nome, descricao, preco, adicionais)
+  const { nome, descricao, preco = 0, imagem, adicionais } = route?.params || {};
 
   const [extras, setExtras] = useState(() => {
     return Object.entries(adicionais || {}).map(([nome, preco], index) => ({
@@ -51,15 +44,12 @@ export default function Produto({route}) {
 
   function toggleExtra(id) {
     const selecionados = extras.filter((i) => i.checked).length;
-
     setExtras((old) =>
       old.map((item) => {
         if (item.id !== id) return item;
-
         if (!item.checked && selecionados >= 5) {
           return item;
         }
-
         return {
           ...item,
           checked: !item.checked,
@@ -71,9 +61,7 @@ export default function Produto({route}) {
   function toggleRemover(id) {
     setRemover((old) =>
       old.map((item) =>
-        item.id === id
-          ? { ...item, checked: !item.checked }
-          : item
+        item.id === id ? { ...item, checked: !item.checked } : item
       )
     );
   }
@@ -82,91 +70,107 @@ export default function Produto({route}) {
     const extrasTotal = extras
       .filter((i) => i.checked)
       .reduce((acc, item) => acc + item.preco, 0);
+    return ((preco || 0) + extrasTotal) * quantidade;
+  }, [extras, quantidade, preco]);
 
-    return (preco + extrasTotal) * quantidade;
-  }, [extras, quantidade]);
+  const adicionaisSelecionados = extras
+    .filter((item) => item.checked)
+    .map((item) => ({
+      nome: item.nome,
+      preco: item.preco,
+    }));
+
+  const ingredientesRemovidos = remover
+    .filter((item) => item.checked)
+    .map((item) => item.nome);
+
+  function handleAddToCart() {
+    addToCart({
+      nome,
+      descricao,
+      preco: preco || 0,
+      imagem,
+      adicionais: adicionaisSelecionados,
+      removidos: ingredientesRemovidos,
+      quantidade,
+      observacao,
+    });
+
+    Alert.alert(
+      "Item Adicionado! 🛒",
+      `${nome} foi adicionado ao seu carrinho.`,
+      [
+        {
+          text: "Continuar Comprando",
+          onPress: () => navigation.goBack(),
+          style: "cancel",
+        },
+        {
+          text: "Ir para o Carrinho",
+          onPress: () => navigation.navigate("Carrinho"),
+        },
+      ]
+    );
+  }
 
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-
-        <Image
-          source={{ uri:imagem }}
-          style={styles.image}
-        />
-
+        {imagem ? (
+          <Image source={{ uri: imagem }} style={styles.image} />
+        ) : null}
         <View style={styles.content}>
-
           <Text style={styles.title}>{nome}</Text>
-
-          <Text style={styles.description}>
-            {descricao}
-          </Text>
-
-          
+          <Text style={styles.description}>{descricao}</Text>
 
           <Text style={styles.price}>
-            R$ {preco.toFixed(2).replace(".", ",")}
+            R$ {(preco || 0).toFixed(2).replace(".", ",")}
           </Text>
-
           <View style={styles.separator} />
 
-          <Text style={styles.sectionTitle}>
-            Monte seu lanche
-          </Text>
+          {extras.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Monte seu lanche</Text>
+              <Text style={styles.subtitle}>Escolha até 5 ingredientes</Text>
+              {extras.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.option}
+                  onPress={() => toggleExtra(item.id)}
+                >
+                  <Text style={styles.checkbox}>
+                    {item.checked ? "☑" : "☐"}
+                  </Text>
+                  <Text style={styles.optionText}>{item.nome}</Text>
+                  <Text style={styles.optionPrice}>
+                    + R$ {item.preco.toFixed(2).replace(".", ",")}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <View style={styles.separator} />
+            </>
+          )}
 
-          <Text style={styles.subtitle}>
-            Escolha até 5 ingredientes
-          </Text>
+          {remover.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Retirar ingredientes</Text>
+              {remover.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.option}
+                  onPress={() => toggleRemover(item.id)}
+                >
+                  <Text style={styles.checkbox}>
+                    {item.checked ? "☑" : "☐"}
+                  </Text>
+                  <Text style={styles.optionText}>{item.nome}</Text>
+                </TouchableOpacity>
+              ))}
+              <View style={styles.separator} />
+            </>
+          )}
 
-          {extras.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.option}
-              onPress={() => toggleExtra(item.id)}
-            >
-              <Text style={styles.checkbox}>
-                {item.checked ? "☑" : "☐"}
-              </Text>
-
-              <Text style={styles.optionText}>
-                {item.nome}
-              </Text>
-
-              <Text style={styles.optionPrice}>
-                + R$ {item.preco.toFixed(2).replace(".", ",")}
-              </Text>
-            </TouchableOpacity>
-          ))}
-
-          <View style={styles.separator} />
-
-          <Text style={styles.sectionTitle}>
-            Retirar ingredientes
-          </Text>
-
-          {remover.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.option}
-              onPress={() => toggleRemover(item.id)}
-            >
-              <Text style={styles.checkbox}>
-                {item.checked ? "☑" : "☐"}
-              </Text>
-
-              <Text style={styles.optionText}>
-                {item.nome}
-              </Text>
-            </TouchableOpacity>
-          ))}
-
-          <View style={styles.separator} />
-
-          <Text style={styles.sectionTitle}>
-            Observações
-          </Text>
-
+          <Text style={styles.sectionTitle}>Observações</Text>
           <TextInput
             style={styles.input}
             multiline
@@ -174,159 +178,105 @@ export default function Produto({route}) {
             value={observacao}
             onChangeText={setObservacao}
           />
-
           <View style={styles.separator} />
 
-          <Text style={styles.sectionTitle}>
-            Quantidade
-          </Text>
-
+          <Text style={styles.sectionTitle}>Quantidade</Text>
           <View style={styles.quantityContainer}>
-
             <TouchableOpacity
               style={styles.qtyButton}
               onPress={() =>
-                quantidade > 1 &&
-                setQuantidade(quantidade - 1)
+                quantidade > 1 && setQuantidade(quantidade - 1)
               }
             >
               <Text style={styles.qtyText}>-</Text>
             </TouchableOpacity>
-
-            <Text style={styles.quantity}>
-              {quantidade}
-            </Text>
-
+            <Text style={styles.quantity}>{quantidade}</Text>
             <TouchableOpacity
               style={styles.qtyButton}
-              onPress={() =>
-                setQuantidade(quantidade + 1)
-              }
+              onPress={() => setQuantidade(quantidade + 1)}
             >
               <Text style={styles.qtyText}>+</Text>
             </TouchableOpacity>
-
           </View>
-
           <View style={styles.separator} />
 
-          <Text style={styles.totalLabel}>
-            Total
-          </Text>
-
+          <Text style={styles.totalLabel}>Total</Text>
           <Text style={styles.total}>
             R$ {total.toFixed(2).replace(".", ",")}
           </Text>
-
         </View>
-
       </ScrollView>
 
-      <TouchableOpacity style={styles.button}
-        onPress={() => 
-          navigation.navigate("Carrinho", {
-            nome: nome,
-            removidos: remover,
-            preco: preco,
-            imagem: imagem,
-            adicionais: extras,
-            quantidade: quantidade
-          })
-        }
-      >
-        <Text style={styles.buttonText}>
-          Adicionar ao carrinho
-        </Text>
-
+      <TouchableOpacity style={styles.button} onPress={handleAddToCart}>
+        <Text style={styles.buttonText}>Adicionar ao carrinho</Text>
         <Text style={styles.buttonPrice}>
           R$ {total.toFixed(2).replace(".", ",")}
         </Text>
       </TouchableOpacity>
-
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFF",
   },
-
   image: {
     width: "100%",
     height: 280,
   },
-
   content: {
     padding: 20,
   },
-
   title: {
     fontSize: 28,
     fontWeight: "bold",
     color: "#222",
   },
-
   description: {
     marginTop: 10,
     color: "#666",
     fontSize: 16,
     lineHeight: 24,
   },
-
-  rating: {
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-
   price: {
     marginTop: 12,
     fontSize: 28,
     fontWeight: "bold",
     color: "#6B3FE4",
   },
-
   separator: {
     marginVertical: 24,
     height: 1,
     backgroundColor: "#ECECEC",
   },
-
   sectionTitle: {
     fontSize: 20,
     fontWeight: "bold",
   },
-
   subtitle: {
     color: "#777",
     marginTop: 6,
     marginBottom: 15,
   },
-
   option: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 18,
   },
-
   checkbox: {
     fontSize: 22,
     marginRight: 15,
   },
-
   optionText: {
     flex: 1,
     fontSize: 16,
   },
-
   optionPrice: {
     color: "#666",
     fontWeight: "600",
   },
-
   input: {
     borderWidth: 1,
     borderColor: "#DDD",
@@ -335,13 +285,11 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: "top",
   },
-
   quantityContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
   },
-
   qtyButton: {
     width: 45,
     height: 45,
@@ -350,43 +298,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   qtyText: {
     color: "#FFF",
     fontWeight: "bold",
     fontSize: 22,
   },
-
   quantity: {
     marginHorizontal: 30,
     fontSize: 22,
     fontWeight: "bold",
   },
-
   totalLabel: {
     fontSize: 18,
     color: "#666",
   },
-
   total: {
     marginTop: 8,
     fontSize: 30,
     fontWeight: "bold",
     color: "#6B3FE4",
   },
-
   button: {
     backgroundColor: "#6B3FE4",
     paddingVertical: 18,
     alignItems: "center",
   },
-
   buttonText: {
     color: "#FFF",
     fontWeight: "bold",
     fontSize: 18,
   },
-
   buttonPrice: {
     color: "#FFF",
     marginTop: 5,
