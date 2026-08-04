@@ -199,7 +199,7 @@ export function GlobalProvider({ children }) {
       total: cartTotal,
       endereco: enderecoEntrega || null,
       dataCriacao: new Date().toISOString(),
-      status: "pendente",
+      status: "pendente_pagamento",
     };
 
     // Salvar pedido na coleção "pedidos"
@@ -212,9 +212,27 @@ export function GlobalProvider({ children }) {
       await set(userPedidoRef, pedido);
     }
 
-    // Esvaziar carrinho após enviar pedido
-    await limparCarrinho();
     return novoPedidoRef.key;
+  }
+
+  async function atualizarStatusPedido(pedidoId, novoStatus) {
+    if (!pedidoId) return;
+
+    const pedidoRef = ref(database, `pedidos/${pedidoId}`);
+    await set(pedidoRef, {
+      ...(await new Promise((resolve, reject) => {
+        onValue(pedidoRef, (snapshot) => {
+          const data = snapshot.val();
+          if (data) {
+            resolve(data);
+          } else {
+            resolve({});
+          }
+        }, reject);
+      })),
+      status: novoStatus,
+      atualizadoEm: new Date().toISOString(),
+    });
   }
 
   const userId = user && user.uid ? user.uid : null;
@@ -239,6 +257,7 @@ export function GlobalProvider({ children }) {
         cartTotal,
         cartCount,
         finalizarPedido,
+        atualizarStatusPedido,
       }}
     >
       {children}

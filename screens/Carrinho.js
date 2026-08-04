@@ -16,6 +16,8 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { useGlobalContext } from "../context/GlobalContext";
+import { createMercadoPagoPreference } from "../services/mercadoPago";
+import * as Linking from "expo-linking";
 
 export default function Carrinho() {
   const navigation = useNavigation();
@@ -26,12 +28,14 @@ export default function Carrinho() {
     removerDoCarrinho,
     cartTotal,
     finalizarPedido,
+    user,
     userId,
     enderecos,
     salvarEndereco,
   } = useGlobalContext();
 
   const [loading, setLoading] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Modais de Endereço
   const [modalEnderecosVisivel, setModalEnderecosVisivel] = useState(false);
@@ -172,28 +176,33 @@ export default function Carrinho() {
     }
 
     setLoading(true);
+    setPaymentLoading(true);
     setModalEnderecosVisivel(false);
     try {
       const pedidoKey = await finalizarPedido(endObj);
-      Alert.alert(
-        "Pedido Realizado! 🎉",
-        "Seu pedido foi registrado com sucesso! Deseja acompanhar a entrega?",
-        [
+
+      const preferenceUrl = await createMercadoPagoPreference({
+        items: [
           {
-            text: "Acompanhar Pedido",
-            onPress: () => navigation.navigate("AcompanhamentoPedido", { pedidoId: pedidoKey }),
+            title: "Pedido Rapidoo",
+            description: cart
+              .map((item) => `${item.nome} x${item.quantidade || 1}`)
+              .join(" • "),
+            quantity: 1,
+            unit_price: Number(cartTotal || 0),
           },
-          {
-            text: "Voltar para o Início",
-            onPress: () => navigation.navigate("Home"),
-          },
-        ]
-      );
+        ],
+        externalReference: pedidoKey,
+        payerEmail: user?.email || "",
+      });
+
+      navigation.navigate("CheckoutMercadoPago", { paymentUrl: preferenceUrl, pedidoId: pedidoKey });
     } catch (error) {
-      Alert.alert("Erro", "Não foi possível finalizar o pedido. Tente novamente.");
+      Alert.alert("Erro", error.message || "Não foi possível finalizar o pedido. Tente novamente.");
       console.error(error);
     } finally {
       setLoading(false);
+      setPaymentLoading(false);
     }
   }
 
@@ -216,6 +225,7 @@ export default function Carrinho() {
     }
 
     setLoading(true);
+    setPaymentLoading(true);
     setModalNovoEnderecoVisivel(false);
 
     try {
@@ -236,6 +246,23 @@ export default function Carrinho() {
       // Finaliza o pedido com esse endereço
       const pedidoKey = await finalizarPedido(endSalvo);
 
+      const preferenceUrl = await createMercadoPagoPreference({
+        items: [
+          {
+            title: "Pedido Rapidoo",
+            description: cart
+              .map((item) => `${item.nome} x${item.quantidade || 1}`)
+              .join(" • "),
+            quantity: 1,
+            unit_price: Number(cartTotal || 0),
+          },
+        ],
+        externalReference: pedidoKey,
+        payerEmail: user?.email || "",
+      });
+
+      navigation.navigate("CheckoutMercadoPago", { paymentUrl: preferenceUrl, pedidoId: pedidoKey });
+
       // Limpa os campos do formulário
       setCep("");
       setRua("");
@@ -245,26 +272,12 @@ export default function Carrinho() {
       setEstado("");
       setComplemento("");
       setCoordenadas(null);
-
-      Alert.alert(
-        "Pedido Realizado! 🎉",
-        "Seu pedido foi registrado com sucesso! Deseja acompanhar a entrega?",
-        [
-          {
-            text: "Acompanhar Pedido",
-            onPress: () => navigation.navigate("AcompanhamentoPedido", { pedidoId: pedidoKey }),
-          },
-          {
-            text: "Voltar para o Início",
-            onPress: () => navigation.navigate("Home"),
-          },
-        ]
-      );
     } catch (error) {
       Alert.alert("Erro", "Não foi possível finalizar o pedido. Tente novamente.");
       console.error(error);
     } finally {
       setLoading(false);
+      setPaymentLoading(false);
     }
   }
 
@@ -362,6 +375,20 @@ export default function Carrinho() {
           paddingBottom: 170,
         }}
       />
+
+      {paymentLoading && (
+        <View style={styles.paymentOverlay}>
+          <ActivityIndicator size="large" color="#FFF" />
+          <Text style={styles.paymentOverlayText}>Preparando pagamento...</Text>
+        </View>
+      )}
+
+      {paymentLoading && (
+        <View style={styles.paymentOverlay}>
+          <ActivityIndicator size="large" color="#FFF" />
+          <Text style={styles.paymentOverlayText}>Preparando pagamento...</Text>
+        </View>
+      )}
 
       <View style={styles.footer}>
         {userId && (
@@ -721,6 +748,23 @@ const styles = StyleSheet.create({
   remover: {
     color: "#E53935",
     fontWeight: "700",
+  },
+  paymentOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(20, 20, 20, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 30,
+  },
+  paymentOverlayText: {
+    marginTop: 12,
+    color: "#FFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   footer: {
     position: "absolute",

@@ -8,7 +8,11 @@ import { addDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { db, auth } from '../firebaseConfig';
 import {
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
+  PhoneAuthProvider,
+  RecaptchaVerifier,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signInWithPhoneNumber
 } from "firebase/auth";
 import * as Google from 'expo-auth-session/providers/google';
 
@@ -21,10 +25,73 @@ function AuthScreen({ navigation }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [verificationId, setVerificationId] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  
+  const handleSendPhoneCode = async () => {
+    if (!phoneNumber.trim()) {
+      setMessage('Informe o número de telefone com DDI.');
+      return;
+    }
+
+    if (Platform.OS !== 'web') {
+      setMessage('A verificação por SMS no mobile precisa de configuração nativa. Para teste agora, use a versão web.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+          callback: () => {},
+          'expired-callback': () => {
+            setMessage('Captcha expirado. Tente novamente.');
+          },
+        });
+      }
+
+      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber.trim(), window.recaptchaVerifier);
+      setVerificationId(confirmationResult.verificationId);
+      setCodeSent(true);
+      setMessage('Código enviado. Digite o código recebido por SMS.');
+    } catch (error) {
+      setMessage(error.message || 'Não foi possível enviar o código.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyPhoneCode = async () => {
+    if (!verificationId) {
+      setMessage('Envie primeiro o código para o telefone.');
+      return;
+    }
+
+    if (!otpCode.trim()) {
+      setMessage('Informe o código recebido por SMS.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+
+    try {
+      const credential = PhoneAuthProvider.credential(verificationId, otpCode.trim());
+      await signInWithCredential(auth, credential);
+      navigation.replace('Home');
+    } catch (error) {
+      setMessage(error.message || 'Código inválido ou expirado.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     console.log("LOGIN OK");
@@ -120,26 +187,86 @@ function AuthScreen({ navigation }) {
               />
             )}
 
-            <TextInput
-              style={styles.input}
-              placeholder="E-mail"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
+            {mode === 'login' ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="E-mail"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Senha"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Senha"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
 
-            <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>{mode === 'login' ? 'Entrar' : 'Cadastrar'}</Text>}
-            </TouchableOpacity>
+                <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Entrar com e-mail</Text>}
+                </TouchableOpacity>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.phoneTitle}>Ou entre com telefone</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Telefone com DDI (ex.: +5511999999999)"
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  keyboardType="phone-pad"
+                />
+
+                <TouchableOpacity style={styles.secondaryActionButton} onPress={handleSendPhoneCode} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#6b3fe4" /> : <Text style={styles.secondaryActionButtonText}>Enviar código</Text>}
+                </TouchableOpacity>
+
+                {codeSent && (
+                  <>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Código recebido"
+                      value={otpCode}
+                      onChangeText={setOtpCode}
+                      keyboardType="number-pad"
+                    />
+
+                    <TouchableOpacity style={styles.secondaryActionButton} onPress={handleVerifyPhoneCode} disabled={loading}>
+                      {loading ? <ActivityIndicator color="#6b3fe4" /> : <Text style={styles.secondaryActionButtonText}>Confirmar código</Text>}
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                <View id="recaptcha-container" style={styles.recaptchaContainer} />
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="E-mail"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Senha"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+
+                <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Cadastrar</Text>}
+                </TouchableOpacity>
+              </>
+            )}
 
             <TouchableOpacity onPress={toggleMode} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>{mode === 'login' ? 'Ainda não tem conta? Cadastre-se' : 'Já possui conta? Entrar'}</Text>
@@ -239,6 +366,34 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: '#6b3fe4',
     fontWeight: '600',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#efe8ff',
+    marginVertical: 14,
+  },
+  phoneTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#5a4b74',
+    marginBottom: 8,
+  },
+  secondaryActionButton: {
+    borderWidth: 1,
+    borderColor: '#6b3fe4',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  secondaryActionButtonText: {
+    color: '#6b3fe4',
+    fontWeight: '700',
+  },
+  recaptchaContainer: {
+    height: 0,
+    width: 0,
+    overflow: 'hidden',
   },
   message: {
     marginTop: 12,

@@ -2,7 +2,7 @@
   "expo": {
     "name": "efood-mobile",
     "slug": "efood-mobile",
-    "scheme": "efood-mobile",
+    "scheme": "rapidoo",
     "platforms": [
       "ios",
       "android",
