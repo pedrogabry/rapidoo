@@ -8,11 +8,13 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Image,
+  Alert,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { ref, onValue } from "firebase/database";
+import { ref, onValue, update, get } from "firebase/database";
 import { database } from "../firebaseConfig";
 import { useGlobalContext } from "../context/GlobalContext";
+import { createMercadoPagoPreference, checkMercadoPagoPaymentStatus } from "../services/mercadoPago";
 
 const STAGES = [
   { key: "realizado", label: "Pedido Confirmado", sub: "O restaurante recebeu seu pedido", icon: "📝" },
@@ -21,15 +23,50 @@ const STAGES = [
   { key: "entregue", label: "Pedido Entregue", sub: "Aproveite a sua refeição!", icon: "🎉" },
 ];
 
+function getPaymentLabel(paymentStatus, orderStatus) {
+  const combined = `${paymentStatus || ""} ${orderStatus || ""}`.toLowerCase();
+  if (combined.includes("approved") || combined.includes("pago") || combined.includes("paid")) return "Pago";
+  if (combined.includes("pending") || combined.includes("pendente")) return "Pendente";
+  if (combined.includes("rejected") || combined.includes("rejeitado") || combined.includes("recusado")) return "Recusado";
+  if (combined.includes("na_entrega")) return "Na entrega";
+  return "Aguardando pagamento";
+}
+
 export default function AcompanhamentoPedido() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { userId } = useGlobalContext();
+  const { userId, atualizarStatusPedido } = useGlobalContext();
   const { pedidoId } = route.params || {};
 
   const [pedidosAtivos, setPedidosAtivos] = useState([]);
   const [selectedPedidoId, setSelectedPedidoId] = useState(pedidoId || null);
+  const [pedidoEmFoco, setPedidoEmFoco] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+
+  useEffect(() => {
+    if (!pedidoId) {
+      setPedidoEmFoco(null);
+      return;
+    }
+
+    const pedidoRef = ref(database, `pedidos/${pedidoId}`);
+    const unsubscribePedido = onValue(
+      pedidoRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setPedidoEmFoco({ id: pedidoId, ...snapshot.val() });
+        } else {
+          setPedidoEmFoco(null);
+        }
+      },
+      (error) => {
+        console.error("Erro ao escutar pedido específico:", error);
+      }
+    );
+
+    return () => unsubscribePedido();
+  }, [pedidoId]);
 
   useEffect(() => {
     const pedidosRef = ref(database, "pedidos");
@@ -54,17 +91,20 @@ export default function AcompanhamentoPedido() {
 
           setPedidosAtivos(lista);
 
-          // Se tiver pedidoId passado e ele estiver na lista, selecionar ele. Senão selecionar o primeiro da lista.
-          if (selectedPedidoId) {
-            const aindaExiste = lista.find((p) => p.id === selectedPedidoId);
-            if (!aindaExiste && lista.length > 0) {
-              setSelectedPedidoId(lista[0].id);
-            }
-          } else if (lista.length > 0) {
-            setSelectedPedidoId(lista[0].id);
+          const pedidoSelecionado =
+            lista.find((p) => p.id === selectedPedidoId) ||
+            lista.find((p) => p.id === pedidoId) ||
+            lista[0] ||
+            null;
+
+          if (pedidoSelecionado) {
+            setSelectedPedidoId(pedidoSelecionado.id);
+          } else {
+            setSelectedPedidoId(null);
           }
         } else {
           setPedidosAtivos([]);
+          setSelectedPedidoId(null);
         }
         setLoading(false);
       },
@@ -75,7 +115,7 @@ export default function AcompanhamentoPedido() {
     );
 
     return () => unsubscribe();
-  }, [userId, pedidoId]);
+  }, [userId, pedidoId, selectedPedidoId]);
 
   function getStageIndex(statusKey) {
     const key = (statusKey || "realizado").toLowerCase();
@@ -84,6 +124,79 @@ export default function AcompanhamentoPedido() {
     if (key === "entrega" || key === "a caminho") return 2;
     if (key === "entregue" || key === "concluido") return 3;
     return 0;
+  }
+
+  // Auto-verificar se o pedido pendente já foi pago no Mercado Pago ao carregar
+  useEffect(() => {
+    if (!pedidoAtual?.id) return;
+
+    const currentStatus = (pedidoAtual.status || "").toLowerCase();
+    const currentPayment = (pedidoAtual.paymentStatus || "").toLowerCase();
+
+    const isAlreadyPaid =
+      currentStatus === "pago" ||
+      currentPayment === "approved" ||
+      currentPayment === "pago" ||
+      ["preparacao", "preparando", "entrega", "a caminho", "entregue", "concluido"].includes(currentStatus);
+
+    if (isAlreadyPaid) return;
+
+    let isMounted = true;
+    checkMercadoPagoPaymentStatus(pedidoAtual.id).then((result) => {
+      if (!isMounted) return;
+      if (result && result.status === "approved") {
+        atualizarStatusPedido(pedidoAtual.id, "pago", { paymentStatus: "approved" });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [pedidoAtual?.id, pedidoAtual?.status, pedidoAtual?.paymentStatus]);
+
+  async function handleRetryPayment() {
+    if (!pedidoAtual?.id) return;
+
+    setPaymentLoading(true);
+
+    try {
+      const pedidoRef = ref(database, `pedidos/${pedidoAtual.id}`);
+      const pedidoSnapshot = await get(pedidoRef);
+      const pedido = pedidoSnapshot.val();
+
+      if (!pedido) {
+        throw new Error("Pedido não encontrado.");
+      }
+
+      const preferenceUrl = await createMercadoPagoPreference({
+        items: [
+          {
+            title: "Pedido Rapidoo",
+            description: (pedido.itens || [])
+              .map((item) => `${item.nome} x${item.quantidade || 1}`)
+              .join(" • "),
+            quantity: 1,
+            unit_price: Number(pedido.total || 0),
+          },
+        ],
+        externalReference: pedidoAtual.id,
+        payerEmail: pedido.email || "",
+      });
+
+      await update(pedidoRef, {
+        paymentStatus: "pending",
+      });
+
+      navigation.navigate("CheckoutMercadoPago", {
+        paymentUrl: preferenceUrl,
+        pedidoId: pedidoAtual.id,
+      });
+    } catch (error) {
+      console.error("Erro ao tentar pagar o pedido:", error);
+      alert(error.message || "Não foi possível abrir o pagamento.");
+    } finally {
+      setPaymentLoading(false);
+    }
   }
 
   if (loading) {
@@ -114,8 +227,17 @@ export default function AcompanhamentoPedido() {
   }
 
   const pedidoAtual =
-    pedidosAtivos.find((p) => p.id === selectedPedidoId) || pedidosAtivos[0];
+    pedidosAtivos.find((p) => p.id === selectedPedidoId) ||
+    pedidosAtivos.find((p) => p.id === pedidoId) ||
+    pedidosAtivos[0];
   const currentStageIndex = getStageIndex(pedidoAtual?.status);
+  const paymentLabel = getPaymentLabel(pedidoAtual?.paymentStatus, pedidoAtual?.status);
+
+  const isOrderPaid =
+    ["approved", "pago", "paid"].includes((pedidoAtual?.paymentStatus || "").toLowerCase()) ||
+    ["pago", "approved", "paid", "preparacao", "preparando", "entrega", "a caminho", "entregue", "concluido"].includes((pedidoAtual?.status || "").toLowerCase());
+
+  const shouldShowRetryPayment = !isOrderPaid && (pedidoAtual?.status || "").toLowerCase() !== "cancelado";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -176,6 +298,20 @@ export default function AcompanhamentoPedido() {
           <Text style={styles.previsaoSub}>
             {STAGES[currentStageIndex].sub}
           </Text>
+          <Text style={styles.paymentBadge}>{paymentLabel}</Text>
+          {shouldShowRetryPayment && (
+            <TouchableOpacity
+              style={styles.retryPaymentButton}
+              onPress={handleRetryPayment}
+              disabled={paymentLoading}
+            >
+              {paymentLoading ? (
+                <ActivityIndicator color="#6B3FE4" size="small" />
+              ) : (
+                <Text style={styles.retryPaymentText}>Tentar pagar agora</Text>
+              )}
+            </TouchableOpacity>
+          )}
           {/* BARRA DE PROGRESSO ILUSTRATIVA */}
           <View style={styles.progressBarBackground}>
             <View
@@ -451,7 +587,31 @@ const styles = StyleSheet.create({
   previsaoSub: {
     color: "#E5D9F8",
     fontSize: 14,
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  paymentBadge: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    color: "#FFF",
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: "bold",
+    marginBottom: 12,
+  },
+  retryPaymentButton: {
+    backgroundColor: "#FFF",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+  retryPaymentText: {
+    color: "#6B3FE4",
+    fontWeight: "700",
+    fontSize: 14,
   },
   progressBarBackground: {
     height: 8,

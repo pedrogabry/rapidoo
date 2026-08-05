@@ -22,6 +22,35 @@ const categories = [
   { id: "5", name: "Mercado", icon: "🛒" },
 ];
 
+function normalizeCategoryName(categoryKey) {
+  const value = (categoryKey || "").toLowerCase();
+
+  switch (value) {
+    case "hamburguer":
+    case "hamburgues":
+    case "hamburgers":
+    case "burger":
+    case "burguer":
+      return "Hambúrguer";
+    case "pizza":
+    case "pizzas":
+      return "Pizza";
+    case "japonesa":
+    case "japonesas":
+    case "sushi":
+      return "Japonesa";
+    case "açaí":
+    case "acai":
+    case "acaí":
+      return "Açaí";
+    case "mercado":
+    case "mercados":
+      return "Mercado";
+    default:
+      return categoryKey || "Outros";
+  }
+}
+
 export default function Home() {
   const [restaurants, setRestaurants] = useState([]);
   const [listaRestaurantes, setlistaRestaurantes] = useState([]);
@@ -48,26 +77,46 @@ export default function Home() {
 
   async function loadRestaurants() {
     try {
-      const snapshot = await get(ref(database, "restaurants"));
-      const data = [];
-      snapshot.forEach((child) => {
-        data.push({
-          id: child.key,
-          ...child.val(),
-        });
-      });
-      setRestaurants(data);
-      setFiltered(data);
-
       const restaurante = await get(ref(database, "restaurantes"));
+
       if (restaurante.exists()) {
-        const lista = Object.entries(restaurante.val()).map(
-          ([id, dados]) => ({
+        const data = [];
+        const lista = [];
+
+        Object.entries(restaurante.val()).forEach(([id, dados]) => {
+          const restauranteNome = dados.nome || dados.name || id;
+          lista.push({
             id,
-            nome: dados.name,
+            nome: restauranteNome,
             logo: dados.logo,
-          })
-        );
+          });
+
+          Object.entries(dados.cardapio || {}).forEach(([categoriaKey, itens]) => {
+            Object.entries(itens || {}).forEach(([itemId, produto]) => {
+              if (!produto || (!produto.nome && !produto.descricao)) return;
+
+              const preco = Number(produto.preco);
+
+              data.push({
+                id: `${id}-${itemId}`,
+                restauranteId: id,
+                restauranteNome,
+                categoria: categoriaKey,
+                categoriaLabel: normalizeCategoryName(categoriaKey),
+                nome: produto.nome,
+                descricao: produto.descricao,
+                preco: Number.isFinite(preco) ? preco : 0,
+                imagem: produto.imagem,
+                adicionais: produto.adicionais,
+              });
+            });
+          });
+        });
+
+        data.sort((a, b) => a.preco - b.preco || a.nome.localeCompare(b.nome));
+
+        setRestaurants(data);
+        setFiltered(data);
         setlistaRestaurantes(lista);
       }
     } catch (error) {
@@ -124,7 +173,15 @@ export default function Home() {
       return;
     }
     const result = restaurants.filter((item) =>
-      item.name.toLowerCase().includes(text.toLowerCase())
+      (item.nome || "")
+        .toLowerCase()
+        .includes(text.toLowerCase()) ||
+      (item.descricao || "")
+        .toLowerCase()
+        .includes(text.toLowerCase()) ||
+      (item.restauranteNome || "")
+        .toLowerCase()
+        .includes(text.toLowerCase())
     );
     setFiltered(result);
   }
@@ -136,7 +193,7 @@ export default function Home() {
       return;
     }
     setSelectedCategory(category);
-    const result = restaurants.filter((item) => item.category === category);
+    const result = restaurants.filter((item) => item.categoriaLabel === category);
     setFiltered(result);
   }
 
@@ -146,6 +203,64 @@ export default function Home() {
     if (st === "entrega" || st === "a caminho") return "Saiu para entrega 🛵";
     if (st === "entregue") return "Entregue 🎉";
     return "Pedido Confirmado 📝";
+  }
+
+  async function abrirPrimeiroProduto(restaurante) {
+    if (!restaurante) return;
+
+    try {
+      const idsParaTentar = [];
+      if (restaurante.id) idsParaTentar.push(restaurante.id);
+      if (restaurante.name) idsParaTentar.push(restaurante.name);
+      if (restaurante.nome) idsParaTentar.push(restaurante.nome);
+
+      let dados = null;
+      let chaveEncontrada = null;
+
+      for (const chave of idsParaTentar) {
+        const snapshot = await get(ref(database, `restaurantes/${chave}`));
+        if (snapshot.exists()) {
+          dados = snapshot.val();
+          chaveEncontrada = chave;
+          break;
+        }
+      }
+
+      if (!dados) {
+        navigation.navigate("Restaurantes", { id: restaurante.id || restaurante.name });
+        return;
+      }
+
+      const categorias = Object.entries(dados.cardapio || {});
+      let produtoInicial = null;
+
+      for (const [, itens] of categorias) {
+        const itemEncontrado = Object.entries(itens || {}).find(
+          ([, produto]) => produto && (produto.nome || produto.descricao)
+        );
+
+        if (itemEncontrado) {
+          const [produtoId, produto] = itemEncontrado;
+          produtoInicial = { id: produtoId, ...produto };
+          break;
+        }
+      }
+
+      if (produtoInicial) {
+        navigation.navigate("Produto", {
+          nome: produtoInicial.nome,
+          descricao: produtoInicial.descricao,
+          preco: produtoInicial.preco,
+          imagem: produtoInicial.imagem,
+          adicionais: produtoInicial.adicionais,
+        });
+      } else {
+        navigation.navigate("Restaurantes", { id: chaveEncontrada || restaurante.id || restaurante.name });
+      }
+    } catch (error) {
+      console.log("Erro ao abrir produto inicial:", error);
+      navigation.navigate("Restaurantes", { id: restaurante.id || restaurante.name });
+    }
   }
 
   return (
@@ -247,27 +362,51 @@ export default function Home() {
           </Text>
         </View>
 
-        <Text style={styles.title}>Restaurantes perto de você</Text>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Image
-                source={{
-                  uri: item.image,
-                }}
-                style={styles.image}
-              />
-              <Text style={styles.restaurant}>{item.name}</Text>
-              <Text style={styles.info}>⭐ {item.rating}</Text>
-              <Text style={styles.info}>⏱ {item.time}</Text>
-              <Text style={styles.price}>R$ {item.price}</Text>
-            </View>
-          )}
-        />
+        <Text style={styles.title}>Lanches mais baratos</Text>
+
+        {Object.entries(
+          filtered.reduce((acc, item) => {
+            if (!acc[item.categoriaLabel]) {
+              acc[item.categoriaLabel] = [];
+            }
+            acc[item.categoriaLabel].push(item);
+            return acc;
+          }, {})
+        ).map(([categoria, itens]) => (
+          <View key={categoria} style={styles.groupSection}>
+            <Text style={styles.groupTitle}>{categoria}</Text>
+            {itens.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.productCard}
+                activeOpacity={0.85}
+                onPress={() =>
+                  navigation.navigate("Produto", {
+                    nome: item.nome,
+                    descricao: item.descricao,
+                    preco: item.preco,
+                    imagem: item.imagem,
+                    adicionais: item.adicionais,
+                  })
+                }
+              >
+                {item.imagem ? (
+                  <Image source={{ uri: item.imagem }} style={styles.productImage} />
+                ) : null}
+                <View style={styles.productInfo}>
+                  <Text style={styles.productName}>{item.nome}</Text>
+                  <Text style={styles.productRestaurant}>{item.restauranteNome}</Text>
+                  <Text style={styles.productDescription} numberOfLines={2}>
+                    {item.descricao}
+                  </Text>
+                  <Text style={styles.productPrice}>
+                    R$ {item.preco.toFixed(2).replace(".", ",")}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
 
         <Text style={styles.texto_restaurantes_titulo}>Restaurantes</Text>
         {listaRestaurantes.map((item) => (
@@ -421,42 +560,52 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 15,
   },
-  card: {
-    width: 160,
-    backgroundColor: "#fff",
-    borderRadius: 15,
-    marginRight: 15,
-    paddingBottom: 10,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+  groupSection: {
+    marginBottom: 18,
   },
-  image: {
-    width: 160,
-    height: 110,
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-  },
-  restaurant: {
-    fontSize: 16,
+  groupTitle: {
+    fontSize: 17,
     fontWeight: "bold",
-    padding: 8,
+    color: "#6b3fe4",
+    marginBottom: 10,
   },
-  info: {
-    paddingHorizontal: 8,
-    fontSize: 13,
-    color: "#555",
+  productCard: {
+    flexDirection: "row",
+    backgroundColor: "#f8f8f8",
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 10,
+    alignItems: "center",
   },
-  price: {
-    paddingHorizontal: 8,
-    marginTop: 5,
-    fontWeight: "bold",
+  productImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  productInfo: {
+    flex: 1,
+  },
+  productName: {
     fontSize: 15,
+    fontWeight: "bold",
+    color: "#222",
+  },
+  productRestaurant: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 2,
+  },
+  productDescription: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+  },
+  productPrice: {
+    marginTop: 6,
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#6b3fe4",
   },
   listarestaurantes: {
     backgroundColor: "#e7e3e33b",

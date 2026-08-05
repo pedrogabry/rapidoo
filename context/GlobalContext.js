@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { ref, push, set, onValue, remove } from "firebase/database";
+import { ref, push, set, onValue, remove, update } from "firebase/database";
 import { auth, database } from "../firebaseConfig";
 
 const GlobalContext = createContext({});
@@ -215,24 +215,19 @@ export function GlobalProvider({ children }) {
     return novoPedidoRef.key;
   }
 
-  async function atualizarStatusPedido(pedidoId, novoStatus) {
+  async function atualizarStatusPedido(pedidoId, novoStatus, metadata = {}) {
     if (!pedidoId) return;
 
-    const pedidoRef = ref(database, `pedidos/${pedidoId}`);
-    await set(pedidoRef, {
-      ...(await new Promise((resolve, reject) => {
-        onValue(pedidoRef, (snapshot) => {
-          const data = snapshot.val();
-          if (data) {
-            resolve(data);
-          } else {
-            resolve({});
-          }
-        }, reject);
-      })),
-      status: novoStatus,
-      atualizadoEm: new Date().toISOString(),
-    });
+    try {
+      const pedidoRef = ref(database, `pedidos/${pedidoId}`);
+      await update(pedidoRef, {
+        status: novoStatus,
+        ...metadata,
+        atualizadoEm: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar status do pedido:", error);
+    }
   }
 
   const userId = user && user.uid ? user.uid : null;

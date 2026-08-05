@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -9,13 +10,12 @@ import {
   View,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import * as WebBrowser from "expo-web-browser";
 import { useGlobalContext } from "../context/GlobalContext";
 
 export default function CheckoutMercadoPago() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { atualizarStatusPedido, limparCarrinho } = useGlobalContext();
+  const { limparCarrinho } = useGlobalContext();
   const { paymentUrl, pedidoId } = route.params || {};
   const [loading, setLoading] = useState(true);
 
@@ -25,33 +25,30 @@ export default function CheckoutMercadoPago() {
       return;
     }
 
-    let active = true;
-
     const openCheckout = async () => {
       try {
-        await WebBrowser.openBrowserAsync(paymentUrl, {
-          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-          controlsColor: "#6B3FE4",
-          toolbarColor: "#6B3FE4",
-          showTitle: true,
-        });
-      } catch (error) {
-        if (active) {
+        const supported = await Linking.canOpenURL(paymentUrl);
+        if (supported) {
+          await Linking.openURL(paymentUrl);
+        } else {
           Alert.alert("Erro", "Não foi possível abrir o checkout do Mercado Pago.");
         }
+      } catch (error) {
+        Alert.alert("Erro", "Não foi possível abrir o checkout do Mercado Pago.");
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
     openCheckout();
-
-    return () => {
-      active = false;
-    };
   }, [paymentUrl]);
+
+  const handleContinueToTracking = async () => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "AcompanhamentoPedido", params: { pedidoId } }],
+    });
+  };
 
   if (!paymentUrl) {
     return (
@@ -70,30 +67,31 @@ export default function CheckoutMercadoPago() {
       {loading ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#6B3FE4" />
-          <Text style={styles.loadingText}>Abrindo checkout dentro do app...</Text>
+          <Text style={styles.loadingText}>Abrindo checkout no navegador...</Text>
         </View>
       ) : (
         <View style={styles.centerContent}>
           <Text style={styles.title}>Finalize o pagamento</Text>
           <Text style={styles.subtitle}>
-            O pagamento foi aberto em uma janela do navegador dentro do app. Complete o fluxo e volte para continuar.
+            O Mercado Pago foi aberto no navegador do dispositivo. Complete o pagamento e volte ao app.
           </Text>
           <TouchableOpacity
             style={styles.button}
-            onPress={() => {
+            onPress={async () => {
               setLoading(true);
-              WebBrowser.openBrowserAsync(paymentUrl, {
-                presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-                controlsColor: "#6B3FE4",
-                toolbarColor: "#6B3FE4",
-                showTitle: true,
-              }).finally(() => setLoading(false));
+              try {
+                await Linking.openURL(paymentUrl);
+              } catch (error) {
+                Alert.alert("Erro", "Não foi possível abrir o checkout do Mercado Pago.");
+              } finally {
+                setLoading(false);
+              }
             }}
           >
             <Text style={styles.buttonText}>Abrir checkout novamente</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.secondaryButtonText}>Voltar</Text>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleContinueToTracking}>
+            <Text style={styles.secondaryButtonText}>Ir para acompanhamento</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -118,6 +116,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#444",
   },
+  centerContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
   title: {
     fontSize: 20,
     fontWeight: "700",
@@ -128,15 +132,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     marginBottom: 16,
+    textAlign: "center",
   },
   button: {
     backgroundColor: "#6B3FE4",
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 12,
+    marginBottom: 10,
+  },
+  secondaryButton: {
+    backgroundColor: "#F3F3F3",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 12,
   },
   buttonText: {
     color: "#fff",
+    fontWeight: "700",
+  },
+  secondaryButtonText: {
+    color: "#444",
     fontWeight: "700",
   },
 });

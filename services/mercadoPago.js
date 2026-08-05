@@ -44,3 +44,45 @@ export async function createMercadoPagoPreference({ items, externalReference, pa
 
   return data.init_point || data.sandbox_init_point || data.url;
 }
+
+export async function checkMercadoPagoPaymentStatus(externalReference) {
+  if (!externalReference || !MERCADOPAGO_ACCESS_TOKEN || MERCADOPAGO_ACCESS_TOKEN.startsWith("SEU")) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `${MERCADOPAGO_API_URL}/v1/payments/search?external_reference=${encodeURIComponent(
+        externalReference
+      )}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${MERCADOPAGO_ACCESS_TOKEN}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    if (data && data.results && data.results.length > 0) {
+      const approvedPayment = data.results.find((p) => p.status === "approved");
+      if (approvedPayment) {
+        return { status: "approved", payment: approvedPayment };
+      }
+
+      const latestPayment = [...data.results].sort(
+        (a, b) => new Date(b.date_created) - new Date(a.date_created)
+      )[0];
+
+      return { status: latestPayment.status, payment: latestPayment };
+    }
+  } catch (error) {
+    console.error("Erro ao verificar pagamento no Mercado Pago:", error);
+  }
+
+  return null;
+}

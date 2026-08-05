@@ -16,7 +16,12 @@ const linking = {
       Produto: "produto",
       Carrinho: "carrinho",
       CheckoutMercadoPago: "checkout",
-      AcompanhamentoPedido: "acompanhamento",
+      AcompanhamentoPedido: {
+        path: "acompanhamento/:pedidoId?",
+        parse: {
+          pedidoId: (pedidoId) => pedidoId,
+        },
+      },
       Perfil: "perfil",
     },
   },
