@@ -8,8 +8,8 @@ import Restaurantes from "../screens/Restaurantes";
 import Produto from "../screens/Produto";
 import Carrinho from "../screens/Carrinho";
 import AcompanhamentoPedido from "../screens/AcompanhamentoPedido";
-import CheckoutMercadoPago from "../screens/CheckoutMercadoPago";
 import Perfil from "../screens/Perfil";
+import CheckoutAsaas from "../screens/CheckoutAsaas";
 
 const Stack = createNativeStackNavigator();
 
@@ -42,7 +42,7 @@ export default function AppRoutes() {
       <Stack.Screen name="Restaurantes" component={Restaurantes} />
       <Stack.Screen name="Produto" component={Produto} />
       <Stack.Screen name="Carrinho" component={Carrinho} />
-      <Stack.Screen name="CheckoutMercadoPago" component={CheckoutMercadoPago} />
+      <Stack.Screen name="CheckoutAsaas" component={CheckoutAsaas}/>
       <Stack.Screen name="AcompanhamentoPedido" component={AcompanhamentoPedido} />
       <Stack.Screen name="Perfil" component={Perfil} />
     </Stack.Navigator>

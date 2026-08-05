@@ -14,7 +14,6 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import { ref, onValue, update, get } from "firebase/database";
 import { database } from "../firebaseConfig";
 import { useGlobalContext } from "../context/GlobalContext";
-import { createMercadoPagoPreference, checkMercadoPagoPaymentStatus } from "../services/mercadoPago";
 
 const STAGES = [
   { key: "realizado", label: "Pedido Confirmado", sub: "O restaurante recebeu seu pedido", icon: "📝" },

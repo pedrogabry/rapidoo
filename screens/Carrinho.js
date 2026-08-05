@@ -16,7 +16,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { useGlobalContext } from "../context/GlobalContext";
-import { createMercadoPagoPreference } from "../services/mercadoPago";
+import { createAsaasPayment } from "../services/asaas";
 import * as Linking from "expo-linking";
 
 export default function Carrinho() {
@@ -181,22 +181,32 @@ export default function Carrinho() {
     try {
       const pedidoKey = await finalizarPedido(endObj);
 
-      const preferenceUrl = await createMercadoPagoPreference({
-        items: [
-          {
-            title: "Pedido Rapidoo",
-            description: cart
-              .map((item) => `${item.nome} x${item.quantidade || 1}`)
-              .join(" • "),
-            quantity: 1,
-            unit_price: Number(cartTotal || 0),
-          },
-        ],
-        externalReference: pedidoKey,
-        payerEmail: user?.email || "",
-      });
+     const pagamento = await createAsaasPayment({
 
-      navigation.navigate("CheckoutMercadoPago", { paymentUrl: preferenceUrl, pedidoId: pedidoKey });
+      pedidoId: pedidoKey,
+
+      valor:Number(cartTotal || 0),
+
+      email:user?.email || "",
+
+      descricao:
+        cart
+        .map(
+          item =>
+          `${item.nome} x${item.quantidade || 1}`
+        )
+        .join(" • ")
+
+    });
+
+
+    navigation.navigate(
+    "CheckoutAsaas",
+    {
+      paymentUrl: pagamento.invoiceUrl,
+      pedidoId: pedidoKey
+    }
+    );
     } catch (error) {
       Alert.alert("Erro", error.message || "Não foi possível finalizar o pedido. Tente novamente.");
       console.error(error);
@@ -261,7 +271,13 @@ export default function Carrinho() {
         payerEmail: user?.email || "",
       });
 
-      navigation.navigate("CheckoutMercadoPago", { paymentUrl: preferenceUrl, pedidoId: pedidoKey });
+      navigation.navigate(
+        "CheckoutAsaas",
+        {
+        paymentUrl: pagamento.invoiceUrl,
+        pedidoId: pedidoKey
+        }
+      );
 
       // Limpa os campos do formulário
       setCep("");
