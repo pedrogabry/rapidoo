@@ -14,6 +14,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPhoneNumber
 } from "firebase/auth";
+import { sendPasswordResetEmail, sendEmailVerification, signOut } from 'firebase/auth';
 import * as Google from 'expo-auth-session/providers/google';
 
 const Stack = createNativeStackNavigator();
@@ -68,6 +69,24 @@ function AuthScreen({ navigation }) {
     }
   };
 
+  const handleSendPasswordReset = async () => {
+    if (!email.trim()) {
+      setMessage('Digite seu e-mail para receber o link de recuperação.');
+      return;
+    }
+
+    setLoading(true);
+    setMessage('');
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setMessage('Enviamos um e-mail com instruções para redefinir sua senha.');
+    } catch (error) {
+      setMessage(error.message || 'Erro ao enviar e-mail de recuperação.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleVerifyPhoneCode = async () => {
     if (!verificationId) {
       setMessage('Envie primeiro o código para o telefone.');
@@ -112,7 +131,7 @@ function AuthScreen({ navigation }) {
   setLoading(true);
   setMessage("");
 
-  try {
+    try {
     console.log("5 - entrou no try");
     if (mode === "register") {
 
@@ -121,13 +140,21 @@ function AuthScreen({ navigation }) {
         return;
       }
        console.log("6 - tentando cadastrar");
-      await createUserWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password
-      );
-      console.log("LOGIN OK");
-      navigation.replace("Home");
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password
+        );
+
+        try {
+          await sendEmailVerification(userCredential.user);
+          await signOut(auth);
+          setMode('login');
+          setMessage('Conta criada. Enviamos um e-mail de verificação. Confirme seu e-mail antes de entrar.');
+        } catch (err) {
+          console.warn('Falha ao enviar e-mail de verificação:', err);
+          setMessage('Conta criada, mas não foi possível enviar o e-mail de verificação. Tente fazer login e solicitar novo envio.');
+        }
 
     } else {
 

@@ -12,6 +12,9 @@ import {
   TextInput,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { remove, ref as dbRef } from 'firebase/database';
+import { deleteUser } from 'firebase/auth';
+import { auth, database } from '../firebaseConfig';
 import * as Location from "expo-location";
 import { useGlobalContext } from "../context/GlobalContext";
 
@@ -21,6 +24,10 @@ export default function Perfil() {
     useGlobalContext();
 
   const [modalNovoEndereco, setModalNovoEndereco] = useState(false);
+  const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Formulário de Novo Endereço
   const [cep, setCep] = useState("");
@@ -166,17 +173,57 @@ export default function Perfil() {
   }
 
   function handleSair() {
-    Alert.alert("Sair da Conta", "Deseja realmente deslogar?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Sair",
-        style: "destructive",
-        onPress: async () => {
-          await deslogar();
-          navigation.navigate("Login");
-        },
-      },
-    ]);
+    setLogoutConfirmVisible(true);
+  }
+
+  async function confirmLogout() {
+    setLogoutLoading(true);
+    try {
+      await deslogar();
+      // Reset navigation stack to Login to avoid going back
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } catch (error) {
+      console.error('Erro ao deslogar:', error);
+      Alert.alert('Erro', 'Não foi possível deslogar. Tente novamente.');
+    } finally {
+      setLogoutLoading(false);
+      setLogoutConfirmVisible(false);
+    }
+  }
+
+  function handleExcluirConta() {
+    setDeleteConfirmVisible(true);
+  }
+
+  async function confirmDeleteAccount() {
+    if (!user || !user.uid) {
+      Alert.alert('Erro', 'Usuário não encontrado.');
+      return;
+    }
+
+    setDeleteLoading(true);
+    try {
+      // remover dados do usuário no Realtime Database
+      await remove(dbRef(database, `usuarios/${user.uid}`));
+
+      // tente deletar o usuário no Firebase Auth
+      if (auth.currentUser) {
+        await deleteUser(auth.currentUser);
+      }
+
+      // reset nav
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } catch (error) {
+      console.error('Erro ao excluir conta:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        Alert.alert('Reautenticação necessária', 'Por segurança, faça login novamente antes de excluir sua conta.');
+      } else {
+        Alert.alert('Erro', 'Não foi possível excluir a conta. Tente novamente mais tarde.');
+      }
+    } finally {
+      setDeleteLoading(false);
+      setDeleteConfirmVisible(false);
+    }
   }
 
   return (
@@ -292,8 +339,88 @@ export default function Perfil() {
               <Text style={styles.loginButtonText}>🔑 Fazer Login / Criar Conta</Text>
             </TouchableOpacity>
           )}
+
+          {user ? (
+            <TouchableOpacity style={styles.deleteAccountButton} onPress={handleExcluirConta}>
+              <Text style={styles.deleteAccountText}>🗑️ Excluir conta</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </ScrollView>
+
+      {/* MODAL CONFIRMAR LOGOUT */}
+      <Modal
+        visible={logoutConfirmVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setLogoutConfirmVisible(false)}
+      >
+        <View style={[styles.modalOverlay, { justifyContent: 'center' }] }>
+          <View style={[styles.modalContent, { marginHorizontal: 24, borderRadius: 12 }] }>
+            <Text style={[styles.modalTitle, { textAlign: 'center' }]}>Sair da Conta</Text>
+            <Text style={{ textAlign: 'center', color: '#666', marginTop: 8 }}>Deseja realmente sair da sua conta?</Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
+              <TouchableOpacity
+                style={[styles.cancelButton]}
+                onPress={() => setLogoutConfirmVisible(false)}
+                disabled={logoutLoading}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmButton]}
+                onPress={confirmLogout}
+                disabled={logoutLoading}
+              >
+                {logoutLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Sair</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL EXCLUIR CONTA */}
+      <Modal
+        visible={deleteConfirmVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setDeleteConfirmVisible(false)}
+      >
+        <View style={[styles.modalOverlay, { justifyContent: 'center' }] }>
+          <View style={[styles.modalContent, { marginHorizontal: 24, borderRadius: 12 }] }>
+            <Text style={[styles.modalTitle, { textAlign: 'center' }]}>Excluir Conta</Text>
+            <Text style={{ textAlign: 'center', color: '#666', marginTop: 8 }}>Esta ação é irreversível. Deseja realmente excluir sua conta e todos os dados?</Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 }}>
+              <TouchableOpacity
+                style={[styles.cancelButton]}
+                onPress={() => setDeleteConfirmVisible(false)}
+                disabled={deleteLoading}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.deleteConfirmButton]}
+                onPress={confirmDeleteAccount}
+                disabled={deleteLoading}
+              >
+                {deleteLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.deleteConfirmButtonText}>Excluir</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* MODAL ADICIONAR NOVO ENDEREÇO */}
       <Modal
@@ -599,16 +726,68 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   logoutButton: {
-    backgroundColor: "#FFEBEE",
+    backgroundColor: '#6B3FE4',
     borderRadius: 14,
     paddingVertical: 14,
-    alignItems: "center",
+    alignItems: 'center',
     marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   logoutButtonText: {
-    color: "#D32F2F",
-    fontWeight: "bold",
+    color: '#FFF',
+    fontWeight: '700',
     fontSize: 15,
+    marginLeft: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#F4F5F7',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#6B3FE4',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#FFF',
+    fontWeight: '700',
+  },
+  deleteAccountButton: {
+    marginTop: 12,
+    backgroundColor: '#FFF5F5',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F2C0C0',
+  },
+  deleteAccountText: {
+    color: '#C62828',
+    fontWeight: '700',
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    backgroundColor: '#C62828',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  deleteConfirmButtonText: {
+    color: '#fff',
+    fontWeight: '700',
   },
   loginButton: {
     backgroundColor: "#6B3FE4",

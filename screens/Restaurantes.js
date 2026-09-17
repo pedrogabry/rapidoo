@@ -20,9 +20,19 @@ export default function Restaurante({ route }) {
   useEffect(() => {
     async function buscarRestaurante() {
       if (!id) return;
-      const snapshot = await get(ref(database, `restaurantes/${id}`));
-      if (snapshot.exists()) {
-        const dados = snapshot.val();
+
+      const caminhos = [`restaurantes/${id}`, `restaurante/${id}`];
+      let dados = null;
+
+      for (const caminho of caminhos) {
+        const snapshot = await get(ref(database, caminho));
+        if (snapshot.exists()) {
+          dados = snapshot.val();
+          break;
+        }
+      }
+
+      if (dados) {
         setRestaurante(dados);
       }
     }
@@ -40,12 +50,25 @@ export default function Restaurante({ route }) {
   const categorias = ["Todos", ...Object.keys(restaurante.cardapio || {})];
 
   const produtos = Object.entries(restaurante.cardapio || {}).flatMap(
-    ([categoria, itens]) =>
-      Object.entries(itens || {}).map(([id, produto]) => ({
+    ([categoria, itens]) => {
+      if (!itens || typeof itens !== "object") return [];
+
+      const temEstruturaProduto =
+        typeof itens.nome === "string" ||
+        typeof itens.descricao === "string" ||
+        typeof itens.preco === "number" ||
+        typeof itens.imagem === "string";
+
+      if (temEstruturaProduto) {
+        return [{ id: categoria, categoria, ...itens }];
+      }
+
+      return Object.entries(itens).map(([id, produto]) => ({
         id,
         categoria,
-        ...produto,
-      }))
+        ...(produto || {}),
+      }));
+    }
   );
 
   const produtosFiltrados =

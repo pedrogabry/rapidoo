@@ -77,48 +77,93 @@ export default function Home() {
 
   async function loadRestaurants() {
     try {
-      const restaurante = await get(ref(database, "restaurantes"));
+      const nomesDasColecoes = ["restaurantes", "restaurante"];
+      let dadosRestaurantes = null;
 
-      if (restaurante.exists()) {
-        const data = [];
-        const lista = [];
+      for (const chave of nomesDasColecoes) {
+        const snapshot = await get(ref(database, chave));
+        if (snapshot.exists()) {
+          dadosRestaurantes = snapshot.val();
+          break;
+        }
+      }
 
-        Object.entries(restaurante.val()).forEach(([id, dados]) => {
-          const restauranteNome = dados.nome || dados.name || id;
-          lista.push({
-            id,
-            nome: restauranteNome,
-            logo: dados.logo,
-          });
+      if (!dadosRestaurantes) {
+        setRestaurants([]);
+        setFiltered([]);
+        setlistaRestaurantes([]);
+        return;
+      }
 
-          Object.entries(dados.cardapio || {}).forEach(([categoriaKey, itens]) => {
-            Object.entries(itens || {}).forEach(([itemId, produto]) => {
-              if (!produto || (!produto.nome && !produto.descricao)) return;
+      const data = [];
+      const lista = [];
 
-              const preco = Number(produto.preco);
+      Object.entries(dadosRestaurantes).forEach(([id, dados]) => {
+        if (!dados || typeof dados !== "object") return;
 
-              data.push({
-                id: `${id}-${itemId}`,
-                restauranteId: id,
-                restauranteNome,
-                categoria: categoriaKey,
-                categoriaLabel: normalizeCategoryName(categoriaKey),
-                nome: produto.nome,
-                descricao: produto.descricao,
-                preco: Number.isFinite(preco) ? preco : 0,
-                imagem: produto.imagem,
-                adicionais: produto.adicionais,
-              });
+        const restauranteNome = dados.nome || dados.name || id;
+        lista.push({
+          id,
+          nome: restauranteNome,
+          logo: dados.logo || dados.imagem || dados.foto,
+        });
+
+        const cardapio = dados.cardapio || {};
+
+        Object.entries(cardapio).forEach(([categoriaKey, categoriaItens]) => {
+          if (!categoriaItens || typeof categoriaItens !== "object") return;
+
+          const itens = categoriaItens;
+          const temEstruturaProduto =
+            typeof itens.nome === "string" ||
+            typeof itens.descricao === "string" ||
+            typeof itens.preco === "number" ||
+            typeof itens.imagem === "string";
+
+          if (temEstruturaProduto) {
+            const preco = Number(itens.preco);
+            data.push({
+              id: `${id}-${categoriaKey}`,
+              restauranteId: id,
+              restauranteNome,
+              categoria: categoriaKey,
+              categoriaLabel: normalizeCategoryName(categoriaKey),
+              nome: itens.nome,
+              descricao: itens.descricao,
+              preco: Number.isFinite(preco) ? preco : 0,
+              imagem: itens.imagem,
+              adicionais: itens.adicionais,
+            });
+            return;
+          }
+
+          Object.entries(itens).forEach(([itemId, produto]) => {
+            if (!produto || typeof produto !== "object") return;
+            if (!produto.nome && !produto.descricao) return;
+
+            const preco = Number(produto.preco);
+
+            data.push({
+              id: `${id}-${itemId}`,
+              restauranteId: id,
+              restauranteNome,
+              categoria: categoriaKey,
+              categoriaLabel: normalizeCategoryName(categoriaKey),
+              nome: produto.nome,
+              descricao: produto.descricao,
+              preco: Number.isFinite(preco) ? preco : 0,
+              imagem: produto.imagem,
+              adicionais: produto.adicionais,
             });
           });
         });
+      });
 
-        data.sort((a, b) => a.preco - b.preco || a.nome.localeCompare(b.nome));
+      data.sort((a, b) => a.preco - b.preco || a.nome.localeCompare(b.nome));
 
-        setRestaurants(data);
-        setFiltered(data);
-        setlistaRestaurantes(lista);
-      }
+      setRestaurants(data);
+      setFiltered(data);
+      setlistaRestaurantes(lista);
     } catch (error) {
       console.log("Erro ao buscar restaurantes:", error);
     }
