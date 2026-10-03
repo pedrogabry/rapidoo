@@ -9,6 +9,26 @@ function sendJson(res, status, body) {
   return res.status(status).json(body);
 }
 
+function logStage(stage, details = {}) {
+  console.info("[payments/create]", { stage, ...details });
+}
+
+function logError(stage, error) {
+  const errorName =
+    typeof error?.name === "string" && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(error.name)
+      ? error.name
+      : "Error";
+  const code = error?.code;
+  const errorCode =
+    (typeof code === "string" &&
+      (/^[A-Z][A-Z0-9_]{0,79}$/.test(code) || /^[a-z]+\/[a-z0-9-]{1,64}$/.test(code))) ||
+    (typeof code === "number" && Number.isInteger(code) && code >= 0 && code <= 999)
+      ? code
+      : "unavailable";
+
+  console.error("[payments/create]", { stage, errorName, errorCode });
+}
+
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (!origin) return true;
@@ -33,7 +53,8 @@ function parseBody(body) {
 
   try {
     return JSON.parse(body);
-  } catch {
+  } catch (error) {
+    logError("request_body_parse", error);
     return null;
   }
 }
@@ -85,6 +106,12 @@ async function updateCreatingPayment(paymentRef, changes) {
 }
 
 module.exports = async function createPayment(req, res) {
+  logStage("endpoint_start", {
+    hasAsaasApiKey: Boolean(process.env.ASAAS_API_KEY),
+    hasFirebaseServiceAccount: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+    hasFirebaseDatabaseUrl: Boolean(process.env.FIREBASE_DATABASE_URL),
+  });
+
   if (!applyCors(req, res)) {
     return sendJson(res, 403, { message: "Origem não autorizada." });
   }
@@ -95,6 +122,7 @@ module.exports = async function createPayment(req, res) {
     return sendJson(res, 405, { message: "Método não permitido." });
   }
 
+  logStage("firebase_auth");
   const authorization = req.headers.authorization || "";
   const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
   if (!tokenMatch) {
@@ -120,11 +148,13 @@ module.exports = async function createPayment(req, res) {
     let decodedToken;
     try {
       decodedToken = await auth.verifyIdToken(tokenMatch[1], true);
-    } catch {
+    } catch (error) {
+      logError("firebase_auth", error);
       return sendJson(res, 401, { message: "Sessão inválida. Entre novamente." });
     }
 
     const orderRef = database.ref(`pedidos/${orderId}`);
+    logStage("order_read");
     const orderSnapshot = await orderRef.get();
     if (!orderSnapshot.exists()) {
       return sendJson(res, 404, { message: "Pedido não encontrado." });
@@ -166,6 +196,7 @@ module.exports = async function createPayment(req, res) {
     }
 
     const createdAt = new Date().toISOString();
+    logStage("payment_reservation");
     const reservation = await orderRef.transaction((currentOrder) => {
       if (
         !currentOrder ||
@@ -232,6 +263,7 @@ module.exports = async function createPayment(req, res) {
 
     let asaasResponse;
     let checkout;
+    logStage("asaas_call");
     try {
       asaasResponse = await fetch(ASAAS_CHECKOUT_URL, {
         method: "POST",
@@ -263,13 +295,16 @@ module.exports = async function createPayment(req, res) {
         }),
         signal: AbortSignal.timeout(20000),
       });
-      checkout = await asaasResponse.json().catch(() => null);
+      checkout = await asaasResponse.json().catch((error) => {
+        logError("asaas_response_parse", error);
+        return null;
+      });
     } catch (error) {
       await updateCreatingPayment(orderRef.child("pagamento"), {
         status: "resultado_indeterminado",
         codigoErro: "ASAAS_UNREACHABLE",
-      }).catch(() => {});
-      console.error("Asaas checkout request failed", error.name || "NetworkError");
+      }).catch((cleanupError) => logError("payment_state_cleanup", cleanupError));
+      logError("asaas_call", error);
       return sendJson(res, 503, { message: "Não foi possível confirmar a criação do checkout. Tente novamente mais tarde." });
     }
 
@@ -279,7 +314,7 @@ module.exports = async function createPayment(req, res) {
       await updateCreatingPayment(orderRef.child("pagamento"), {
         status: isDefinitiveRejection ? "falhou" : "resultado_indeterminado",
         codigoErro: isDefinitiveRejection ? "ASAAS_REJECTED" : "ASAAS_UNAVAILABLE",
-      }).catch(() => {});
+      }).catch((error) => logError("payment_state_cleanup", error));
       return sendJson(res, 502, { message: "O Asaas não conseguiu iniciar o checkout." });
     }
 
@@ -287,11 +322,12 @@ module.exports = async function createPayment(req, res) {
       await updateCreatingPayment(orderRef.child("pagamento"), {
         status: "resultado_indeterminado",
         codigoErro: "ASAAS_INVALID_RESPONSE",
-      }).catch(() => {});
+      }).catch((error) => logError("payment_state_cleanup", error));
       console.error("Asaas checkout response was incomplete");
       return sendJson(res, 502, { message: "Não foi possível confirmar a criação do checkout." });
     }
 
+    logStage("checkout_save");
     const savedPayment = await orderRef.child("pagamento").transaction((current) => {
       if (!current || current.status !== "criando") return;
       return {
@@ -304,10 +340,11 @@ module.exports = async function createPayment(req, res) {
     });
 
     if (!savedPayment.committed) {
-      console.error("Asaas checkout created but could not be linked to order");
+      logStage("checkout_save_failed", { reason: "transaction_not_committed" });
       return sendJson(res, 503, { message: "Checkout criado, mas não foi possível salvar o vínculo com o pedido." });
     }
 
+    logStage("finalization");
     return sendJson(res, 201, {
       orderId,
       checkoutId: checkout.id,
@@ -316,7 +353,7 @@ module.exports = async function createPayment(req, res) {
       reused: false,
     });
   } catch (error) {
-    console.error("Payment endpoint failed", error.code || error.name || "UnknownError");
+    logError("endpoint_exception", error);
     return sendJson(res, 503, { message: "Serviço de pagamento indisponível." });
   }
 };
