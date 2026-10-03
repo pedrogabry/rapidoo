@@ -1,148 +1,120 @@
-import React,{useEffect,useState} from "react";
-
+import React, { useEffect, useState } from "react";
 import {
- View,
- Text,
- StyleSheet,
- Linking,
- TouchableOpacity,
- ActivityIndicator,
- SafeAreaView
-}
-from "react-native";
+	ActivityIndicator,
+	Linking,
+	SafeAreaView,
+	StyleSheet,
+	Text,
+	TouchableOpacity,
+	View,
+} from "react-native";
+import { useRoute } from "@react-navigation/native";
+import { createAsaasPayment } from "../services/asaas";
 
+export default function CheckoutAsaas() {
+	const route = useRoute();
+	const { orderId, result } = route.params || {};
+	const [loading, setLoading] = useState(false);
+	const [checkoutUrl, setCheckoutUrl] = useState(null);
+	const [error, setError] = useState(null);
 
-import {useRoute} from "@react-navigation/native";
+	async function iniciarCheckout() {
+		if (!orderId) {
+			setError("Não foi possível identificar o pedido.");
+			return;
+		}
 
+		setLoading(true);
+		setError(null);
+		try {
+			const payment = await createAsaasPayment(orderId);
+			setCheckoutUrl(payment.checkoutUrl);
+			await Linking.openURL(payment.checkoutUrl);
+		} catch (requestError) {
+			setError(requestError.message || "Não foi possível abrir o checkout.");
+		} finally {
+			setLoading(false);
+		}
+	}
 
-export default function CheckoutAsaas(){
+	useEffect(() => {
+		if (result) return;
+		iniciarCheckout();
+	}, [orderId, result]);
 
-const route=useRoute();
+	async function abrirCheckoutSalvo() {
+		if (!checkoutUrl) return;
+		try {
+			await Linking.openURL(checkoutUrl);
+		} catch {
+			setError("Não foi possível abrir o checkout neste dispositivo.");
+		}
+	}
 
-const {
-paymentUrl
-}=route.params || {};
+	return (
+		<SafeAreaView style={styles.container}>
+			<View style={styles.content}>
+				<Text style={styles.title}>
+					{result ? "Retorno do checkout" : "Pagamento do pedido"}
+				</Text>
+				<Text style={styles.description}>
+					{result
+						? "O retorno do checkout não confirma o pagamento. Aguarde a confirmação do Asaas."
+						: "O checkout seguro do Asaas oferece Pix e cartão de crédito."}
+				</Text>
 
+				{loading && <ActivityIndicator size="large" />}
+				{error && <Text style={styles.error}>{error}</Text>}
 
-const [loading,setLoading]=useState(true);
+				{!result && !loading && checkoutUrl && (
+					<TouchableOpacity style={styles.button} onPress={abrirCheckoutSalvo}>
+						<Text style={styles.buttonText}>Abrir checkout</Text>
+					</TouchableOpacity>
+				)}
 
-
-
-useEffect(()=>{
-
-
-async function abrir(){
-
-try{
-
-await Linking.openURL(paymentUrl);
-
-
-}
-catch(e){
-
-console.log(e);
-
-}
-
-
-finally{
-
-setLoading(false);
-
-}
-
-}
-
-
-if(paymentUrl)
-abrir();
-
-
-},[]);
-
-
-
-return (
-
-<SafeAreaView style={styles.container}>
-
-
-{
-loading ?
-
-<ActivityIndicator
-size="large"
-/>
-
-
-:
-
-<>
-
-<Text style={styles.title}>
-Finalize seu pagamento
-</Text>
-
-
-<TouchableOpacity
-
-style={styles.button}
-
-onPress={()=>
-Linking.openURL(paymentUrl)
+				{!result && !loading && !checkoutUrl && error && (
+					<TouchableOpacity style={styles.button} onPress={iniciarCheckout}>
+						<Text style={styles.buttonText}>Tentar novamente</Text>
+					</TouchableOpacity>
+				)}
+			</View>
+		</SafeAreaView>
+	);
 }
 
->
-
-<Text style={styles.buttonText}>
-Abrir pagamento
-</Text>
-
-
-</TouchableOpacity>
-
-</>
-
-}
-
-
-
-</SafeAreaView>
-
-);
-
-
-}
-
-
-
-const styles=StyleSheet.create({
-
-container:{
-flex:1,
-justifyContent:"center",
-alignItems:"center"
-},
-
-
-title:{
-fontSize:20,
-fontWeight:"bold",
-marginBottom:20
-},
-
-
-button:{
-backgroundColor:"#6B3FE4",
-padding:15,
-borderRadius:10
-},
-
-
-buttonText:{
-color:"#fff"
-}
-
-
+const styles = StyleSheet.create({
+	container: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		padding: 24,
+	},
+	content: {
+		width: "100%",
+		alignItems: "center",
+	},
+	title: {
+		fontSize: 20,
+		fontWeight: "bold",
+		marginBottom: 12,
+		textAlign: "center",
+	},
+	description: {
+		marginBottom: 20,
+		textAlign: "center",
+	},
+	error: {
+		color: "#b42318",
+		marginBottom: 16,
+		textAlign: "center",
+	},
+	button: {
+		backgroundColor: "#6B3FE4",
+		padding: 15,
+		borderRadius: 8,
+	},
+	buttonText: {
+		color: "#fff",
+		fontWeight: "600",
+	},
 });

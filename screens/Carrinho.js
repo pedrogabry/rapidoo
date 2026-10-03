@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -16,8 +16,6 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { useGlobalContext } from "../context/GlobalContext";
-import { createAsaasPayment } from "../services/asaas";
-import * as Linking from "expo-linking";
 
 export default function Carrinho() {
   const navigation = useNavigation();
@@ -28,7 +26,6 @@ export default function Carrinho() {
     removerDoCarrinho,
     cartTotal,
     finalizarPedido,
-    user,
     userId,
     enderecos,
     salvarEndereco,
@@ -36,6 +33,7 @@ export default function Carrinho() {
 
   const [loading, setLoading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const finalizacaoEmAndamento = useRef(false);
 
   // Modais de Endereço
   const [modalEnderecosVisivel, setModalEnderecosVisivel] = useState(false);
@@ -169,6 +167,8 @@ export default function Carrinho() {
 
   // Confirmar Pedido com Endereço Existente Selecionado
   async function handleConfirmarComEnderecoExistente() {
+    if (finalizacaoEmAndamento.current) return;
+
     const endObj = enderecos.find((e) => e.id === enderecoSelecionadoId) || enderecos[0];
     if (!endObj) {
       Alert.alert("Atenção", "Selecione um endereço para entrega.");
@@ -179,38 +179,14 @@ export default function Carrinho() {
     setPaymentLoading(true);
     setModalEnderecosVisivel(false);
     try {
-      const pedidoKey = await finalizarPedido(endObj);
-
-     const pagamento = await createAsaasPayment({
-
-      pedidoId: pedidoKey,
-
-      valor:Number(cartTotal || 0),
-
-      email:user?.email || "",
-
-      descricao:
-        cart
-        .map(
-          item =>
-          `${item.nome} x${item.quantidade || 1}`
-        )
-        .join(" • ")
-
-    });
-
-
-    navigation.navigate(
-    "CheckoutAsaas",
-    {
-      paymentUrl: pagamento.invoiceUrl,
-      pedidoId: pedidoKey
-    }
-    );
+      finalizacaoEmAndamento.current = true;
+      const orderId = await finalizarPedido(endObj);
+      navigation.navigate("CheckoutAsaas", { orderId });
     } catch (error) {
       Alert.alert("Erro", error.message || "Não foi possível finalizar o pedido. Tente novamente.");
       console.error(error);
     } finally {
+      finalizacaoEmAndamento.current = false;
       setLoading(false);
       setPaymentLoading(false);
     }
@@ -218,6 +194,8 @@ export default function Carrinho() {
 
   // Confirmar Pedido salvando Novo Endereço Obrigatório
   async function handleSalvarEConfirmarNovoEndereco() {
+    if (finalizacaoEmAndamento.current) return;
+
     if (!cep.trim() || !rua.trim() || !numero.trim() || !bairro.trim() || !cidade.trim()) {
       Alert.alert(
         "Campos Obrigatórios",
@@ -239,6 +217,7 @@ export default function Carrinho() {
     setModalNovoEnderecoVisivel(false);
 
     try {
+      finalizacaoEmAndamento.current = true;
       const novoEndereco = {
         cep: cep.trim(),
         rua: rua.trim(),
@@ -254,30 +233,8 @@ export default function Carrinho() {
       const endSalvo = await salvarEndereco(novoEndereco);
 
       // Finaliza o pedido com esse endereço
-      const pedidoKey = await finalizarPedido(endSalvo);
-
-      const preferenceUrl = await createMercadoPagoPreference({
-        items: [
-          {
-            title: "Pedido Rapidoo",
-            description: cart
-              .map((item) => `${item.nome} x${item.quantidade || 1}`)
-              .join(" • "),
-            quantity: 1,
-            unit_price: Number(cartTotal || 0),
-          },
-        ],
-        externalReference: pedidoKey,
-        payerEmail: user?.email || "",
-      });
-
-      navigation.navigate(
-        "CheckoutAsaas",
-        {
-        paymentUrl: pagamento.invoiceUrl,
-        pedidoId: pedidoKey
-        }
-      );
+      const orderId = await finalizarPedido(endSalvo);
+      navigation.navigate("CheckoutAsaas", { orderId });
 
       // Limpa os campos do formulário
       setCep("");
@@ -289,9 +246,10 @@ export default function Carrinho() {
       setComplemento("");
       setCoordenadas(null);
     } catch (error) {
-      Alert.alert("Erro", "Não foi possível finalizar o pedido. Tente novamente.");
+      Alert.alert("Erro", error.message || "Não foi possível finalizar o pedido. Tente novamente.");
       console.error(error);
     } finally {
+      finalizacaoEmAndamento.current = false;
       setLoading(false);
       setPaymentLoading(false);
     }

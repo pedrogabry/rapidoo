@@ -1,145 +1,33 @@
-const API_URL = "https://api.asaas.com/v3";
+import { auth } from "../firebaseConfig";
 
-const ASAAS_API_KEY = "sua api key aqui"; // Substitua pela sua chave de API do Asaas
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
+export async function createAsaasPayment(orderId) {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("Entre na sua conta para iniciar o pagamento.");
+  }
+  if (!API_BASE_URL) {
+    throw new Error("A URL da API de pagamentos não foi configurada.");
+  }
 
-async function createCustomer({
-  nome,
-  email,
-  cpfCnpj,
-}) {
-
+  const idToken = await currentUser.getIdToken();
   const response = await fetch(
-    `${API_URL}/customers`,
+    `${API_BASE_URL.replace(/\/+$/, "")}/api/payments/create`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "access_token": ASAAS_API_KEY,
+        Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({
-        name: nome || "Cliente Rapidoo",
-        email,
-        cpfCnpj,
-      }),
+      body: JSON.stringify({ orderId }),
     }
   );
 
-
-  const data = await response.json();
-
-
-  if(!response.ok){
-    throw new Error(
-      data.errors?.[0]?.description ||
-      "Erro criando cliente"
-    );
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.message || "Não foi possível iniciar o pagamento.");
   }
 
-
-  return data.id;
-}
-
-
-
-export async function createAsaasPayment({
-  pedidoId,
-  valor,
-  email,
-  descricao,
-  nome,
-  cpfCnpj,
-}) {
-
-
-  try {
-
-
-    console.log("CRIANDO CLIENTE ASAAS");
-
-
-    const customerId = await createCustomer({
-      nome,
-      email,
-      cpfCnpj: cpfCnpj || "06855050140",
-    });
-
-
-
-    console.log(
-      "CUSTOMER ASAAS",
-      customerId
-    );
-
-
-
-    const response = await fetch(
-      `${API_URL}/payments`,
-      {
-        method:"POST",
-
-        headers:{
-          "Content-Type":"application/json",
-          "access_token":ASAAS_API_KEY,
-        },
-
-
-        body:JSON.stringify({
-
-          customer: customerId,
-
-          billingType:"UNDEFINED",
-
-          value:Number(valor),
-
-          dueDate:new Date()
-          .toISOString()
-          .split("T")[0],
-
-
-          description:descricao,
-
-
-          externalReference:pedidoId,
-
-
-          notificationUrl:
-          "https://rapidoo-vecel-7hvqc40yu-pedrogabrieloliveiramarques-projects.vercel.app/api/asaas-webhook"
-
-        })
-      }
-    );
-
-
-
-    const data = await response.json();
-
-
-    console.log(
-      "RESPOSTA ASAAS",
-      data
-    );
-
-
-    if(!response.ok){
-      throw new Error(
-        data.errors?.[0]?.description ||
-        "Erro criando cobrança"
-      );
-    }
-
-
-    return data;
-
-
-  } catch(error){
-
-    console.log(
-      "ERRO ASAAS",
-      error
-    );
-
-    throw error;
-  }
-
+  return result;
 }

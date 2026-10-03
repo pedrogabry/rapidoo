@@ -15,7 +15,13 @@ const linking = {
       Restaurantes: "restaurantes",
       Produto: "produto",
       Carrinho: "carrinho",
-      CheckoutMercadoPago: "checkout",
+      CheckoutAsaas: {
+        path: "checkout",
+        parse: {
+          orderId: (orderId) => orderId,
+          result: (result) => result,
+        },
+      },
       AcompanhamentoPedido: {
         path: "acompanhamento/:pedidoId?",
         parse: {

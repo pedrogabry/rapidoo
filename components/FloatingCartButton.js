@@ -31,13 +31,13 @@ export default function FloatingCartButton() {
     return null;
   }
 
-  // Ocultar nas telas de Carrinho, Login, Produto, AcompanhamentoPedido e CheckoutMercadoPago
+  // Ocultar nas telas em que o carrinho não deve ser aberto.
   if (
     currentRoute === "Carrinho" ||
     currentRoute === "Login" ||
     currentRoute === "Produto" ||
     currentRoute === "AcompanhamentoPedido" ||
-    currentRoute === "CheckoutMercadoPago"
+    currentRoute === "CheckoutAsaas"
   ) {
     return null;
   }

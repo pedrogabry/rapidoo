@@ -11,7 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { ref, onValue, update, get } from "firebase/database";
+import { ref, onValue } from "firebase/database";
 import { database } from "../firebaseConfig";
 import { useGlobalContext } from "../context/GlobalContext";
 
@@ -34,14 +34,13 @@ function getPaymentLabel(paymentStatus, orderStatus) {
 export default function AcompanhamentoPedido() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { userId, atualizarStatusPedido } = useGlobalContext();
+  const { userId } = useGlobalContext();
   const { pedidoId } = route.params || {};
 
   const [pedidosAtivos, setPedidosAtivos] = useState([]);
   const [selectedPedidoId, setSelectedPedidoId] = useState(pedidoId || null);
   const [pedidoEmFoco, setPedidoEmFoco] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [paymentLoading, setPaymentLoading] = useState(false);
 
   useEffect(() => {
     if (!pedidoId) {
@@ -125,79 +124,6 @@ export default function AcompanhamentoPedido() {
     return 0;
   }
 
-  // Auto-verificar se o pedido pendente já foi pago no Mercado Pago ao carregar
-  useEffect(() => {
-    if (!pedidoAtual?.id) return;
-
-    const currentStatus = (pedidoAtual.status || "").toLowerCase();
-    const currentPayment = (pedidoAtual.paymentStatus || "").toLowerCase();
-
-    const isAlreadyPaid =
-      currentStatus === "pago" ||
-      currentPayment === "approved" ||
-      currentPayment === "pago" ||
-      ["preparacao", "preparando", "entrega", "a caminho", "entregue", "concluido"].includes(currentStatus);
-
-    if (isAlreadyPaid) return;
-
-    let isMounted = true;
-    checkMercadoPagoPaymentStatus(pedidoAtual.id).then((result) => {
-      if (!isMounted) return;
-      if (result && result.status === "approved") {
-        atualizarStatusPedido(pedidoAtual.id, "pago", { paymentStatus: "approved" });
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [pedidoAtual?.id, pedidoAtual?.status, pedidoAtual?.paymentStatus]);
-
-  async function handleRetryPayment() {
-    if (!pedidoAtual?.id) return;
-
-    setPaymentLoading(true);
-
-    try {
-      const pedidoRef = ref(database, `pedidos/${pedidoAtual.id}`);
-      const pedidoSnapshot = await get(pedidoRef);
-      const pedido = pedidoSnapshot.val();
-
-      if (!pedido) {
-        throw new Error("Pedido não encontrado.");
-      }
-
-      const preferenceUrl = await createMercadoPagoPreference({
-        items: [
-          {
-            title: "Pedido Rapidoo",
-            description: (pedido.itens || [])
-              .map((item) => `${item.nome} x${item.quantidade || 1}`)
-              .join(" • "),
-            quantity: 1,
-            unit_price: Number(pedido.total || 0),
-          },
-        ],
-        externalReference: pedidoAtual.id,
-        payerEmail: pedido.email || "",
-      });
-
-      await update(pedidoRef, {
-        paymentStatus: "pending",
-      });
-
-      navigation.navigate("CheckoutMercadoPago", {
-        paymentUrl: preferenceUrl,
-        pedidoId: pedidoAtual.id,
-      });
-    } catch (error) {
-      console.error("Erro ao tentar pagar o pedido:", error);
-      alert(error.message || "Não foi possível abrir o pagamento.");
-    } finally {
-      setPaymentLoading(false);
-    }
-  }
-
   if (loading) {
     return (
       <SafeAreaView style={styles.centerContainer}>
@@ -231,12 +157,6 @@ export default function AcompanhamentoPedido() {
     pedidosAtivos[0];
   const currentStageIndex = getStageIndex(pedidoAtual?.status);
   const paymentLabel = getPaymentLabel(pedidoAtual?.paymentStatus, pedidoAtual?.status);
-
-  const isOrderPaid =
-    ["approved", "pago", "paid"].includes((pedidoAtual?.paymentStatus || "").toLowerCase()) ||
-    ["pago", "approved", "paid", "preparacao", "preparando", "entrega", "a caminho", "entregue", "concluido"].includes((pedidoAtual?.status || "").toLowerCase());
-
-  const shouldShowRetryPayment = !isOrderPaid && (pedidoAtual?.status || "").toLowerCase() !== "cancelado";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -298,19 +218,6 @@ export default function AcompanhamentoPedido() {
             {STAGES[currentStageIndex].sub}
           </Text>
           <Text style={styles.paymentBadge}>{paymentLabel}</Text>
-          {shouldShowRetryPayment && (
-            <TouchableOpacity
-              style={styles.retryPaymentButton}
-              onPress={handleRetryPayment}
-              disabled={paymentLoading}
-            >
-              {paymentLoading ? (
-                <ActivityIndicator color="#6B3FE4" size="small" />
-              ) : (
-                <Text style={styles.retryPaymentText}>Tentar pagar agora</Text>
-              )}
-            </TouchableOpacity>
-          )}
           {/* BARRA DE PROGRESSO ILUSTRATIVA */}
           <View style={styles.progressBarBackground}>
             <View
